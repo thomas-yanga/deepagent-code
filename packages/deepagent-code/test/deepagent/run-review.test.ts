@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs"
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, utimesSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { AgentGateway } from "@deepagent-code/core/agent-gateway"
@@ -108,8 +108,12 @@ describe("A7 reviewer projection", () => {
   })
 
   test("lists run ids most-recent-first", async () => {
-    writeRun("run_a", { "x.json": {} })
-    writeRun("run_b", { "x.json": {} })
+    const a = writeRun("run_a", { "x.json": {} })
+    const b = writeRun("run_b", { "x.json": {} })
+    // mtime granularity can tie two back-to-back writes; pin the mtimes so the ordering
+    // assertion is deterministic (the tie-break is lexical and would mask recency bugs).
+    utimesSync(a, new Date(1_000), new Date(1_000))
+    utimesSync(b, new Date(2_000), new Date(2_000))
     const ids = await listRunIds(runsDir)
     expect(ids).toEqual(["run_b", "run_a"])
   })
