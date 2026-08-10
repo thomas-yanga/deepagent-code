@@ -843,7 +843,11 @@ describe("SessionRunnerLLM", () => {
     }),
   )
 
-  it.effect("uses only DeepAgent system prompt for active deepagent provider sessions", () =>
+  // BUG-003-407 G31-2: the V2 runner must MERGE the DeepAgent mode contract with the agent
+  // baseline instead of replacing it (§4: `agent.info.system` is not dropped just because the
+  // DeepAgent prompt is non-empty). The stable prefix keeps the legacy order — agent baseline,
+  // durable context baseline, then the DeepAgent parts.
+  it.effect("merges DeepAgent system prompt with agent baseline for active deepagent provider sessions", () =>
     Effect.gen(function* () {
       yield* setup
       AgentGateway.configure({ enabled: true, agentMode: "high" })
@@ -866,8 +870,11 @@ describe("SessionRunnerLLM", () => {
 
       const system = requests.at(-1)?.system.map((part) => part.text) ?? []
       expect(system.join("\n")).toContain(AgentGateway.DEEPAGENT_BOOT_MESSAGE)
-      expect(system.join("\n")).not.toContain("Build agent instructions")
-      expect(system.join("\n")).not.toContain("You are deepagent-code")
+      expect(system.join("\n")).toContain("Build agent instructions")
+      expect(system.join("\n")).toContain("You are deepagent-code")
+      expect(system.indexOf("Build agent instructions")).toBeLessThan(
+        system.findIndex((part) => part.includes(AgentGateway.DEEPAGENT_BOOT_MESSAGE)),
+      )
       AgentGateway.configure({ enabled: false, agentMode: "high" })
     }),
   )
