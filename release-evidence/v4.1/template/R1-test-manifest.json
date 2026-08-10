@@ -1,0 +1,87 @@
+{
+  "schema_version": "deepagent.r1_test_manifest.v1",
+  "notes": [
+    "Every command must run from the package directory (tests cannot run from the repo root).",
+    "Errata applied: the release-gate doc's `test:llm-ext:subagent-control-plane` does not exist; the registered script is `test:llm-live:subagent-control-plane`.",
+    "Test IDs marked NOT_YET_IMPLEMENTED must not appear in a gate manifest as `passed`."
+  ],
+  "suites": {
+    "R1-407": {
+      "gate": "V4.0.7 context runtime hardening",
+      "packages": {
+        "packages/core": [
+          "bun test --timeout 30000 test/context-federation test/session-compaction.test.ts test/session-execution.test.ts test/session-run-coordinator.test.ts test/session-runner.test.ts test/deepagent-event-bus.test.ts test/event-router.test.ts"
+        ],
+        "packages/deepagent-code": [
+          "bun test --timeout 30000 test/session/prompt-intent.test.ts test/session/compaction.test.ts test/session/overflow.test.ts test/session/prompt.test.ts"
+        ]
+      }
+    },
+    "R1-A": {
+      "gate": "V4.1.0 single authority",
+      "packages": {
+        "packages/core": [
+          "bun test --timeout 30000 test/deepagent/document-store.test.ts test/deepagent/plan-store.test.ts test/deepagent/plan-controller.test.ts test/deepagent/memory-governance.test.ts test/deepagent/promotion.test.ts test/deepagent/knowledge-gate.test.ts test/database-migration.test.ts"
+        ]
+      }
+    },
+    "R1-P": {
+      "gate": "V4.1.1 provider turn seam",
+      "packages": {
+        "packages/deepagent-code": [
+          "bun test --timeout 30000 test/session test/context-federation",
+          "bun run test:llm-det:contracts"
+        ]
+      }
+    },
+    "R1-C": {
+      "gate": "V4.1.2 session context",
+      "packages": {
+        "packages/core": [
+          "bun test --timeout 30000 test/context-federation test/deepagent/hard-gate.test.ts"
+        ],
+        "packages/deepagent-code": [
+          "bun test --timeout 30000 test/context-federation"
+        ]
+      }
+    },
+    "R1-X": {
+      "gate": "V4.1.3 collaboration",
+      "packages": {
+        "packages/deepagent-code": [
+          "bun test --timeout 30000 test/panel test/session/agent-worktree.test.ts test/session/goal-driver.test.ts test/session/goal-loop-bcd-integration.test.ts test/session/goal-steer.test.ts"
+        ]
+      }
+    },
+    "R1-E": {
+      "gate": "V4.1.4 event runtime",
+      "packages": {
+        "packages/core": [
+          "bun test --timeout 30000 test/deepagent-event-bus.test.ts test/event-router.test.ts test/event.test.ts"
+        ]
+      }
+    },
+    "R1-L": {
+      "gate": "V4.1.5 learning closed loop",
+      "packages": {
+        "packages/core": [
+          "bun test --timeout 30000 test/deepagent/learning-queue.test.ts test/deepagent/auto-reviewer.test.ts test/deepagent/background-learning.test.ts test/deepagent/promotion.test.ts test/deepagent/ablation.test.ts test/deepagent/hooks-reviewer.test.ts"
+        ],
+        "packages/deepagent-code": [
+          "bun test --timeout 30000 test/deepagent/learning-writeback-gate.test.ts test/deepagent/run-review.test.ts"
+        ]
+      }
+    }
+  },
+  "live_scripts": {
+    "packages/deepagent-code": [
+      "bun run test:llm-ext:long-session",
+      "bun run test:llm-ext:multi-agent-dag",
+      "bun run test:llm-ext:v4-multi-agent-runtime",
+      "bun run test:llm-live:subagent-control-plane",
+      "bun run test:llm-ext:multi-agent-pr-collaboration",
+      "bun run test:llm-routes",
+      "bun run test:httpapi"
+    ]
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "deepagent.release_evidence.v1",
+  "title": "DeepAgent release evidence manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "version",
+    "gate_id",
+    "commit",
+    "branch",
+    "dirty_files",
+    "platform",
+    "bundle",
+    "database",
+    "flags",
+    "commands",
+    "artifacts",
+    "oracle",
+    "status",
+    "residual_risks",
+    "signed_by"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "deepagent.release_evidence.v1" },
+    "version": { "type": "string", "description": "Release version, e.g. 4.1.x" },
+    "gate_id": { "type": "string", "description": "e.g. R1-A-D01, R2-S3, R3-EVT-1000" },
+    "commit": { "type": "string", "minLength": 40, "maxLength": 40, "description": "Full commit SHA the evidence binds to" },
+    "branch": { "type": "string" },
+    "dirty_files": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Must be empty for a valid gate run — evidence from a dirty worktree is not accepted"
+    },
+    "platform": {
+      "type": "object",
+      "required": ["os", "arch", "runtime", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "os": { "type": "string" },
+        "arch": { "type": "string" },
+        "runtime": { "type": "string", "description": "bun | node" },
+        "version": { "type": "string" }
+      }
+    },
+    "bundle": {
+      "type": "object",
+      "required": ["kind", "path", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["source", "server", "desktop", "cli"] },
+        "path": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "database": {
+      "type": "object",
+      "required": ["fixture", "path", "migration_ledger_hash"],
+      "additionalProperties": false,
+      "properties": {
+        "fixture": { "enum": ["empty", "legacy", "restart", "crash"] },
+        "path": { "type": "string" },
+        "migration_ledger_hash": { "type": "string" }
+      }
+    },
+    "flags": { "type": "object", "description": "All non-default runtime flags active during the gate run" },
+    "provider": {
+      "type": "object",
+      "required": ["provider_id", "model_id", "protocol", "endpoint_class"],
+      "additionalProperties": false,
+      "properties": {
+        "provider_id": { "type": "string" },
+        "model_id": { "type": "string" },
+        "protocol": { "type": "string" },
+        "endpoint_class": { "type": "string" }
+      },
+      "description": "Never store credentials or full sensitive prompts"
+    },
+    "commands": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["cwd", "argv", "exit_code", "log"],
+        "additionalProperties": false,
+        "properties": {
+          "cwd": { "type": "string" },
+          "argv": { "type": "array", "items": { "type": "string" } },
+          "exit_code": { "type": "integer" },
+          "log": { "type": "string", "description": "Path to captured log artifact" }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "path", "sha256"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": { "enum": ["db", "request", "receipt", "sse", "ui", "metric"] },
+          "path": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "oracle": {
+      "type": "object",
+      "required": ["deterministic_ids", "expected", "observed"],
+      "additionalProperties": false,
+      "properties": {
+        "deterministic_ids": { "type": "array", "items": { "type": "string" } },
+        "expected": { "type": "object" },
+        "observed": { "type": "object", "description": "Filled from actual command output, never copied from expected" }
+      }
+    },
+    "status": { "enum": ["passed", "failed", "blocked", "not_run"] },
+    "residual_risks": { "type": "array", "items": { "type": "string" } },
+    "signed_by": {
+      "type": "object",
+      "required": ["domain", "actor", "at"],
+      "additionalProperties": false,
+      "properties": {
+        "domain": { "type": "string" },
+        "actor": { "type": "string" },
+        "at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}
