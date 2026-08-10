@@ -17,7 +17,7 @@ export default {
       // One row per logical compaction decision.  A session may have many runs
       // (one per hard overflow event) but at most one "active" (requested/summarizing) run.
       yield* tx.run(`
-        CREATE TABLE compaction_run (
+        CREATE TABLE IF NOT EXISTS compaction_run (
           run_id         TEXT NOT NULL PRIMARY KEY,
           session_id     TEXT NOT NULL,
           from_prompt_epoch INTEGER NOT NULL,
@@ -37,17 +37,17 @@ export default {
       `)
       // At most one active run per session (state in requested|summarizing|indeterminate).
       yield* tx.run(`
-        CREATE UNIQUE INDEX compaction_run_session_active_idx
+        CREATE UNIQUE INDEX IF NOT EXISTS compaction_run_session_active_idx
           ON compaction_run (session_id)
           WHERE state IN ('requested', 'summarizing', 'indeterminate')
       `)
-      yield* tx.run(`CREATE INDEX compaction_run_session_idx ON compaction_run (session_id, created_at)`)
+      yield* tx.run(`CREATE INDEX IF NOT EXISTS compaction_run_session_idx ON compaction_run (session_id, created_at)`)
 
       // ── compaction_summary_attempt ──────────────────────────────────────
       // One row per physical Provider dispatch within a compaction_run.
       // ordinal is 1-based; max 2 dispatches per run (BUG-006 hard upper bound).
       yield* tx.run(`
-        CREATE TABLE compaction_summary_attempt (
+        CREATE TABLE IF NOT EXISTS compaction_summary_attempt (
           summary_attempt_id TEXT NOT NULL PRIMARY KEY,
           run_id             TEXT NOT NULL REFERENCES compaction_run(run_id) ON DELETE CASCADE,
           ordinal            INTEGER NOT NULL CHECK (ordinal >= 1),
@@ -74,7 +74,7 @@ export default {
       // state='active' per session at any time (enforced by the partial unique index).
       // checkpoint refs are null for Epoch 0 (bootstrap / no compaction yet).
       yield* tx.run(`
-        CREATE TABLE session_prompt_epoch (
+        CREATE TABLE IF NOT EXISTS session_prompt_epoch (
           session_id              TEXT NOT NULL,
           epoch                   INTEGER NOT NULL CHECK (epoch >= 0),
           state                   TEXT NOT NULL CHECK (state IN ('active', 'retired')),
@@ -93,7 +93,7 @@ export default {
       `)
       // At most one active epoch per session.
       yield* tx.run(`
-        CREATE UNIQUE INDEX session_prompt_epoch_active_idx
+        CREATE UNIQUE INDEX IF NOT EXISTS session_prompt_epoch_active_idx
           ON session_prompt_epoch (session_id)
           WHERE state = 'active'
       `)

@@ -6,7 +6,7 @@ export default {
   up(tx) {
     return Effect.gen(function* () {
       yield* tx.run(`
-        CREATE TABLE session_intent (
+        CREATE TABLE IF NOT EXISTS session_intent (
           intent_id TEXT PRIMARY KEY,
           session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
           source TEXT NOT NULL CHECK (source IN ('composer', 'intelligence', 'followup', 'rewrite')),
@@ -27,7 +27,7 @@ export default {
         )
       `)
       yield* tx.run(`
-        CREATE INDEX session_intent_session_state_idx
+        CREATE INDEX IF NOT EXISTS session_intent_session_state_idx
         ON session_intent (session_id, state, time_created)
       `)
     })

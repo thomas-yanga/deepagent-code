@@ -11,7 +11,7 @@ export default {
   up(tx) {
     return Effect.gen(function* () {
       yield* tx.run(`
-        CREATE TABLE session_tool_request_receipt (
+        CREATE TABLE IF NOT EXISTS session_tool_request_receipt (
           receipt_id          TEXT NOT NULL PRIMARY KEY,
           request_ordinal     INTEGER NOT NULL CHECK (request_ordinal >= 1),
           session_id          TEXT NOT NULL,
@@ -40,14 +40,14 @@ export default {
         )
       `)
       yield* tx.run(
-        `CREATE UNIQUE INDEX session_tool_request_receipt_session_ordinal_idx
+        `CREATE UNIQUE INDEX IF NOT EXISTS session_tool_request_receipt_session_ordinal_idx
            ON session_tool_request_receipt(session_id, request_ordinal)`,
       )
       yield* tx.run(
-        `CREATE INDEX session_tool_request_receipt_session_idx ON session_tool_request_receipt(session_id, created_at)`,
+        `CREATE INDEX IF NOT EXISTS session_tool_request_receipt_session_idx ON session_tool_request_receipt(session_id, created_at)`,
       )
       yield* tx.run(
-        `CREATE INDEX session_tool_request_receipt_msg_idx ON session_tool_request_receipt(assistant_message_id)`,
+        `CREATE INDEX IF NOT EXISTS session_tool_request_receipt_msg_idx ON session_tool_request_receipt(assistant_message_id)`,
       )
     })
   },

@@ -7,6 +7,11 @@ export default {
   id: "20260807123000_session_tool_argument_validation_outcome",
   up(tx) {
     return Effect.gen(function* () {
+      // Column guard keeps re-application on a carrying install from failing on the duplicate ALTER.
+      const exists = (yield* tx.all<{ name: string }>(`PRAGMA table_info(\`session_tool_argument_receipt\`)`)).some(
+        (column) => column.name === "validation_outcome",
+      )
+      if (exists) return
       yield* tx.run(`
         ALTER TABLE session_tool_argument_receipt
         ADD COLUMN validation_outcome TEXT NOT NULL DEFAULT 'not_evaluated'

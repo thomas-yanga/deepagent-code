@@ -9,7 +9,7 @@ export default {
   up(tx) {
     return Effect.gen(function* () {
       yield* tx.run(`
-        CREATE TABLE session_tool_argument_receipt (
+        CREATE TABLE IF NOT EXISTS session_tool_argument_receipt (
           receipt_id        TEXT NOT NULL,
           layer             TEXT NOT NULL CHECK (layer IN ('raw_frame','ai_sdk_input','adapter_assembly','processor_decoded')),
           ordinal           INTEGER NOT NULL CHECK (ordinal >= 0),
@@ -33,11 +33,11 @@ export default {
         )
       `)
       yield* tx.run(
-        `CREATE INDEX session_tool_argument_receipt_call_idx
+        `CREATE INDEX IF NOT EXISTS session_tool_argument_receipt_call_idx
            ON session_tool_argument_receipt(receipt_id, call_id, layer, ordinal)`,
       )
       yield* tx.run(
-        `CREATE INDEX session_tool_argument_receipt_created_idx
+        `CREATE INDEX IF NOT EXISTS session_tool_argument_receipt_created_idx
            ON session_tool_argument_receipt(created_at)`,
       )
     })
