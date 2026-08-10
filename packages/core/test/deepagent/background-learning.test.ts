@@ -100,6 +100,60 @@ describe("V3.1 LearningWorker and SkillCurator", () => {
     expect(result2.auto_merged_ids.length).toBe(1)
   })
 
+  // BUG-004-407 (L-D08): reviewer failure must be fail-CLOSED for review-routed candidates.
+  // Previously the catch path fell back to the FULL extraction, so a review-required candidate the
+  // reviewer was about to reject could be staged to the inbox (or worse) when the reviewer threw.
+  test("reviewer failure withholds review-routed candidates instead of falling back to full extraction", async () => {
+    const { store, worker } = workerFor()
+    const failedState = createInitialRoundState("max")
+    failedState.diagnoses.push(
+      { round: 1, root_cause: "missing validation", evidence_refs: ["run:runThrow:r1"], next_action: "revise" },
+      { round: 2, root_cause: "missing validation", evidence_refs: ["run:runThrow:r2"], next_action: "block" },
+    )
+    const input = {
+      projectID: "projA",
+      sessionID: "sess1",
+      runID: "runThrow",
+      mode: "max" as const,
+      roundState: failedState,
+      totalRounds: 2,
+      finalStatus: "failed" as const,
+      trigger: "idle" as const,
+      reviewer: async (): Promise<readonly Learning.LearningCandidate[]> => {
+        throw new Error("reviewer timeout")
+      },
+    }
+    const result = await worker.run(input)
+    // The anti_pattern candidate is review-routed: with the reviewer down it is withheld entirely —
+    // not staged, not in the inbox, not auto-merged.
+    expect(result.auto_merged_ids).toEqual([])
+    expect(result.inbox_ids).toEqual([])
+    expect(store.listByStatus("candidate")).toHaveLength(0)
+    expect(store.listByStatus("active")).toHaveLength(0)
+    expect(worker.listInbox()).toHaveLength(0)
+
+    // Control: without a reviewer the same run routes the candidates to the inbox as usual.
+    const control = await worker.run({ ...input, reviewer: undefined })
+    expect(control.inbox_ids.length).toBeGreaterThan(0)
+
+    // Control: an auto-safe memory candidate STILL auto-merges when the reviewer throws (non-fatal
+    // pass for candidates whose governance route is auto_admit).
+    const safe = await worker.run({
+      projectID: "projA",
+      sessionID: "sess1",
+      runID: "runSafe",
+      mode: "high",
+      roundState: createInitialRoundState("high"),
+      totalRounds: 1,
+      finalStatus: "completed",
+      trigger: "idle",
+      reviewer: async () => {
+        throw new Error("reviewer timeout")
+      },
+    })
+    expect(safe.auto_merged_ids).toEqual(["memory:runSafe:first-pass-success"])
+  })
+
   test("manual review policy sends staged candidates to Memory Inbox", async () => {
     const { store, worker } = workerFor()
     const result = await worker.run({

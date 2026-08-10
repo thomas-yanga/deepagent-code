@@ -110,14 +110,31 @@ export class LearningWorker {
     })
     // H32-2: if a reviewer is injected, pass ONLY the extracted candidates — no session state, no
     // history, no run context. The reviewer may filter or annotate; we proceed on its output.
-    // If the reviewer throws, fall back to the full extraction to keep the learning pass non-fatal.
     let candidates: readonly LearningCandidate[] = extraction.candidates
     if (input.reviewer && candidates.length > 0) {
       try {
         candidates = await input.reviewer(candidates)
       } catch {
-        // Non-fatal: reviewer failure must not block the learning pass.
-        candidates = extraction.candidates
+        // BUG-004-407 fail-CLOSED: a reviewer failure must never let review-routed candidates slip
+        // through. Auto-safe candidates keep flowing (the learning pass stays non-fatal); anything
+        // whose full auto-admit predicate (policy + governance route + confidence floor) would NOT
+        // have auto-merged it — i.e. it was headed for the review inbox — is withheld entirely.
+        candidates = extraction.candidates.filter((candidate) => {
+          const classification = Governance.classify(candidate)
+          const route = Governance.route({
+            classification,
+            inRejectedBuffer:
+              (this.rejectedBuffer?.has(candidateFingerprint(candidate)) ?? false) || candidate.status === "rejected",
+            contradictsHighTrust: this.detectHighTrustContradiction(candidate, classification),
+            promotesIntoPack: false,
+            promotesToGlobal: false,
+          })
+          return (
+            input.policy !== "manual_review" &&
+            route.kind === "auto_admit" &&
+            Governance.meetsConfidenceFloor(candidate, classification)
+          )
+        })
       }
     }
     const policy = input.policy ?? "auto_merge_safe_project"
