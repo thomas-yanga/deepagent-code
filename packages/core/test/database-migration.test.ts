@@ -107,6 +107,21 @@ describe("DatabaseMigration", () => {
           ),
         ).toEqual({ name: "session_tool_argument_receipt" })
         expect(
+          yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'learning_job'`),
+        ).toEqual({ name: "learning_job" })
+        expect(
+          yield* db.all(
+            sql`SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('learning_job_state_created', 'learning_job_owner_lease', 'learning_job_project_created') ORDER BY name`,
+          ),
+        ).toEqual([
+          { name: "learning_job_owner_lease" },
+          { name: "learning_job_project_created" },
+          { name: "learning_job_state_created" },
+        ])
+        expect(
+          yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'released_snapshot'`),
+        ).toEqual({ name: "released_snapshot" })
+        expect(
           yield* db.all(
             sql`SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('session_tool_argument_receipt_call_idx', 'session_tool_argument_receipt_created_idx') ORDER BY name`,
           ),
