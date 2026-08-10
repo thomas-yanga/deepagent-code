@@ -869,7 +869,7 @@ const live: Layer.Layer<
             if (result.type === "native") {
               let adapterOrdinal = 0
               const validatedCallIDs = new Set<string>()
-              return result.stream.pipe(
+              const nativeStream = result.stream.pipe(
                 Stream.tap((event) => {
                   if (!input.requestReceipt) return Effect.void
                   const details = adapterReceiptDetails(event)
@@ -901,6 +901,23 @@ const live: Layer.Layer<
                       })
                     : Effect.void,
                 ),
+              )
+              // G31-1 (BUG-003-407): the native adapter must NOT bypass the AgentGateway lifecycle —
+              // without manageStream, audit records, budget-exhaustion checks and the kill switch
+              // silently did not apply to native turns. Wrap exactly like the AI SDK path below.
+              return AgentGateway.manageStream(
+                {
+                  callKind: "session_turn",
+                  feature: input.small ? "session_small_model" : "session_chat",
+                  providerID: input.model.providerID,
+                  modelID: input.model.id,
+                  sessionID: input.sessionID,
+                  messageID: input.user.id,
+                  parentSessionID: input.parentSessionID,
+                  agent: input.agent.name,
+                  metadata: result.metadata,
+                },
+                nativeStream,
               )
             }
 
