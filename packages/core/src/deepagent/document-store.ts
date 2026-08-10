@@ -175,6 +175,62 @@ export type DocFilter = {
 export type IntegrityViolation = { readonly invariant: string; readonly docId: string; readonly detail: string }
 export type IntegrityReport = { readonly ok: boolean; readonly violations: readonly IntegrityViolation[] }
 
+// BUG-002-407 (single governance authority): audit envelope carried in `Doc.extensions.governance`
+// on every version produced by a governance transition. `fingerprint` is the canonical candidate
+// content hash at decision time — it is what the durable RejectedBuffer/projection rebuilds match
+// against, so the same point re-learned later can be dropped even if the doc identity differs.
+export interface GovernanceEnvelope {
+  readonly fingerprint: string // sha256 of canonical candidate content at decision time
+  readonly review_status: "auto_approved" | "pending" | "review_required" | "approved" | "rejected"
+  readonly actor_type: "system" | "user" | "agent"
+  readonly actor_id?: string
+  readonly transitioned_at: number // epoch ms
+  readonly reviewer_session_id?: string // if approved by an isolated reviewer
+  readonly rejection_reason?: string // required when review_status === "rejected"
+}
+
+/** Read the governance envelope off a doc, or undefined when the version carries none. */
+export function getGovernanceEnvelope(doc: Doc): GovernanceEnvelope | undefined {
+  const g = doc.extensions?.governance
+  if (!g || typeof g !== "object") return undefined
+  return g as GovernanceEnvelope
+}
+
+// A governance CAS miss: the caller's expected version is no longer the latest authority version.
+// The caller must re-read the doc and re-apply its decision explicitly — never merge or clobber.
+export class GovernanceConflictError extends Error {
+  readonly _tag = "GovernanceConflictError"
+  constructor(
+    readonly docId: string,
+    readonly expectedVersion: number,
+    readonly actualVersion: number,
+  ) {
+    super(
+      `DocumentStore governance conflict: ${docId} expected v${expectedVersion} but latest is v${actualVersion}. ` +
+        `Re-read the latest version and re-apply the governance decision.`,
+    )
+    this.name = "GovernanceConflictError"
+  }
+}
+
+// A governance state transition committed via DocumentStore.commitGovernance. approve activates the
+// candidate in place (same doc identity, new version); reject records the durable reason; supersede
+// marks the doc replaced by an explicit successor ref.
+export type GovernanceTransition =
+  | {
+      readonly kind: "approve"
+      readonly actor_id: string
+      readonly actor_type: "system" | "user" | "agent"
+      readonly reviewer_session_id?: string
+    }
+  | {
+      readonly kind: "reject"
+      readonly actor_id: string
+      readonly actor_type: "system" | "user" | "agent"
+      readonly reason: string
+    }
+  | { readonly kind: "supersede"; readonly superseded_by: string }
+
 // F30-1 (deepagentcore-v4.0.3 storage prereq): a CAS write conflict. Thrown when persist() tries to
 // create an append-only version file (`id@vN.json`) that already exists on disk with a DIFFERENT
 // content hash — i.e. another writer (a second handle or a second process) already produced version
@@ -227,6 +283,25 @@ const computeHash = (doc: Doc): string => {
   const { hash: _h, ...rest } = doc
   return "sha256:" + createHash("sha256").update(canonical(rest)).digest("hex")
 }
+
+// Canonical candidate content hash used in the governance envelope. Scoped to the semantic content
+// (type/scope/domain/description/body) — deliberately excludes doc identity, mutable extensions and
+// provenance — so the same candidate re-staged under a different doc id still matches a prior
+// rejection fingerprint (durable dedupe against re-learning). Excludes status/version/hash by
+// construction, mirroring the no-op fingerprint above.
+const governanceContentHash = (d: Doc): string =>
+  "sha256:" +
+  createHash("sha256")
+    .update(
+      canonical({
+        type: d.type,
+        scope: d.scope,
+        domain: d.domain,
+        description: d.description,
+        body: d.body,
+      }),
+    )
+    .digest("hex")
 
 // fingerprint of semantic content (excludes version/hash/status/superseded_by) for the no-op rule
 const fingerprint = (d: Doc): string =>
@@ -484,10 +559,78 @@ export class DocumentStore {
     this.update(from, cur.body, [...cur.links, { rel, to, ...(note ? { note } : {}) }])
   }
 
-  setStatus(id: string, status: DocStatus): void {
+  // INTERNAL, non-governance status repair only (e.g. corpus seeding reactivation). Governance
+  // state changes (approve/reject/supersede/quarantine of a candidate) MUST go through
+  // commitGovernance(), which appends a new CAS-fenced version with an audit envelope instead of
+  // overwriting the current version file in place. `expected`, when provided, adds a version guard
+  // so a stale caller fails closed instead of clobbering a newer version.
+  setStatus(id: string, status: DocStatus, expected?: number): void {
     const cur = this.get(id)
     if (!cur) throw new Error(`setStatus: unknown doc ${id}`)
+    if (expected !== undefined && cur.version !== expected) {
+      throw new GovernanceConflictError(id, expected, cur.version)
+    }
     this.replace({ ...cur, status })
+  }
+
+  // BUG-002-407: every semantic governance mutation appends vN+1 with an audit envelope; the old
+  // version is left intact in the chain (marked superseded like update()). CAS predicate is the
+  // caller's expected latest version; cross-process races additionally fail closed through
+  // persist()'s exclusive-create collision check (DocumentConflictError). Exact same-content
+  // retries land as idempotent no-ops via persist()'s hash match.
+  commitGovernance(docId: string, expectedVersion: number, transition: GovernanceTransition): Doc {
+    const cur = this.get(docId)
+    if (!cur) throw new Error(`commitGovernance: unknown doc ${docId}`)
+    if (cur.version !== expectedVersion) {
+      throw new GovernanceConflictError(docId, expectedVersion, cur.version)
+    }
+    const previousEnvelope = getGovernanceEnvelope(cur)
+    const status: DocStatus =
+      transition.kind === "approve" ? "active" : transition.kind === "reject" ? "rejected" : "superseded"
+    const envelope: GovernanceEnvelope = {
+      fingerprint: governanceContentHash(cur),
+      review_status:
+        transition.kind === "approve"
+          ? "approved"
+          : transition.kind === "reject"
+            ? "rejected"
+            : (previousEnvelope?.review_status ?? "approved"),
+      actor_type: transition.kind === "supersede" ? "system" : transition.actor_type,
+      ...(transition.kind !== "supersede" ? { actor_id: transition.actor_id } : {}),
+      transitioned_at: Date.now(),
+      ...(transition.kind === "reject" ? { rejection_reason: transition.reason } : {}),
+      ...(transition.kind === "approve" && transition.reviewer_session_id
+        ? { reviewer_session_id: transition.reviewer_session_id }
+        : {}),
+    }
+    const next: Doc = {
+      ...cur,
+      version: cur.version + 1,
+      status,
+      superseded_by: transition.kind === "supersede" ? transition.superseded_by : null,
+      hash: "",
+      extensions: { ...cur.extensions, governance: envelope },
+    }
+    const hashed: Doc = { ...next, hash: computeHash(next) }
+    this.persist(hashed)
+    this.replace({ ...cur, status: "superseded", superseded_by: `${docId}@v${hashed.version}` })
+    return hashed
+  }
+
+  // Same-scope approve: the candidate's OWN doc identity advances to status "active" as vN+1 —
+  // this does NOT copy the candidate into a second user-global doc. Cross-scope promotion requires
+  // an explicit fork action (with source_doc_ref lineage and its own review/release gate), never an
+  // implicit duplicate from the approve path.
+  approveCandidate(
+    candidateDocId: string,
+    expectedVersion: number,
+    actor: { readonly id: string; readonly type: "system" | "user" | "agent" },
+  ): Doc {
+    return this.commitGovernance(candidateDocId, expectedVersion, {
+      kind: "approve",
+      actor_id: actor.id,
+      actor_type: actor.type,
+    })
   }
 
   // ---- read ----

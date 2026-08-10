@@ -2,7 +2,14 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test"
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { DocumentStore, DocumentConflictError, knowledgeSimilarity, tokenizeForSimilarity } from "../../src/deepagent/document-store"
+import {
+  DocumentStore,
+  DocumentConflictError,
+  GovernanceConflictError,
+  getGovernanceEnvelope,
+  knowledgeSimilarity,
+  tokenizeForSimilarity,
+} from "../../src/deepagent/document-store"
 import { writeFileAtomic, writeFileExclusive } from "../../src/deepagent/atomic-write"
 import { DurableKnowledgeStore } from "../../src/deepagent/durable-knowledge-store"
 
@@ -463,5 +470,83 @@ describe("knowledge similarity (dedup helper)", () => {
         description: "use redis for the rate limiter",
       }),
     ).toBeNull()
+  })
+})
+
+describe("BUG-002-407 governance CAS (single authority)", () => {
+  const candidate = (body = "cand") => ({
+    type: "candidate" as const,
+    scope: "run:t1",
+    body,
+    description: "learning candidate",
+    provenance: prov,
+  })
+
+  test("approveCandidate commits vN+1 in place without copying identity (A-D09)", () => {
+    const c = store.create(candidate())
+    const approved = store.approveCandidate(c.id, c.version, { id: "human:1", type: "user" })
+    expect(approved.id).toBe(c.id)
+    expect(approved.version).toBe(2)
+    expect(approved.status).toBe("active")
+    // old version is retained in the chain, not overwritten in place
+    expect(store.get(c.id, 1)!.status).toBe("superseded")
+    // audit envelope present with decision-time fingerprint + actor
+    const env = getGovernanceEnvelope(approved)
+    expect(env?.review_status).toBe("approved")
+    expect(env?.actor_id).toBe("human:1")
+    expect(env?.fingerprint).toMatch(/^sha256:[0-9a-f]{64}$/)
+    // envelope survives a cold rebuild (files are the truth)
+    const reopened = new DocumentStore(root)
+    expect(getGovernanceEnvelope(reopened.get(c.id)!)?.review_status).toBe("approved")
+  })
+
+  test("second approve with the stale expected version conflicts (A-D09 second call)", () => {
+    const c = store.create(candidate())
+    store.approveCandidate(c.id, c.version, { id: "human:1", type: "user" })
+    expect(() => store.approveCandidate(c.id, c.version, { id: "human:2", type: "user" })).toThrow(
+      GovernanceConflictError,
+    )
+    expect(store.get(c.id)!.version).toBe(2)
+  })
+
+  test("reject records the durable reason + fingerprint on the new version", () => {
+    const c = store.create(candidate("leaky summary"))
+    const rejected = store.commitGovernance(c.id, c.version, {
+      kind: "reject",
+      actor_id: "human:9",
+      actor_type: "user",
+      reason: "contains credentials",
+    })
+    expect(rejected.status).toBe("rejected")
+    const env = getGovernanceEnvelope(rejected)
+    expect(env?.review_status).toBe("rejected")
+    expect(env?.rejection_reason).toBe("contains credentials")
+    // fingerprint matches the decision-time content, independent of doc identity
+    expect(env?.fingerprint).toBe(getGovernanceEnvelope(store.get(c.id)!)!.fingerprint)
+  })
+
+  test("two shared handles: only one commitGovernance wins (A-D01)", () => {
+    const a = DocumentStore.shared(path.join(root, "shared-a"))
+    const b = DocumentStore.shared(path.join(root, "shared-a"))
+    try {
+      const c = a.create(candidate())
+      a.approveCandidate(c.id, c.version, { id: "human:1", type: "user" })
+      // the second handle sees the committed version through the shared index
+      expect(b.get(c.id)!.version).toBe(2)
+      expect(() => b.commitGovernance(c.id, 1, { kind: "approve", actor_id: "h2", actor_type: "user" })).toThrow(
+        GovernanceConflictError,
+      )
+    } finally {
+      DocumentStore.__resetSharedRegistryForTests()
+    }
+  })
+
+  test("setStatus expected-version guard fails closed for stale callers", () => {
+    const c = store.create(candidate())
+    const v2 = store.update(c.id, "cand v2") // append-only bump: latest is now v2
+    // a stale caller (still expecting v1) is rejected instead of overwriting v2 in place
+    expect(() => store.setStatus(c.id, "quarantined", c.version)).toThrow(GovernanceConflictError)
+    store.setStatus(c.id, "quarantined", v2.version)
+    expect(store.get(c.id)!.status).toBe("quarantined")
   })
 })
