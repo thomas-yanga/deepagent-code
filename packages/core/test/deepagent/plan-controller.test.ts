@@ -684,13 +684,24 @@ describe("plan snapshot render", () => {
     )
     const out = renderPlanSnapshot(plan)
     expect(out).toContain("Current plan (1/4 done)")
-    expect(out).toContain("[x] build")
-    expect(out).toContain("[>] test")
-    expect(out).toContain("[!] deploy")
-    expect(out).toContain("[ ] docs")
-    expect(out).toContain("Active step: test")
+    expect(out).toContain("[x] s1: build")
+    expect(out).toContain("[>] s2: test")
+    expect(out).toContain("[!] s3: deploy — blocked: creds")
+    expect(out).toContain("[ ] s4: docs")
+    expect(out).toContain("Active step: s2 (test)")
     expect(out).toContain("goal:")
     expect(renderPlanSnapshot(plan, "continuation")).not.toContain("goal:")
+  })
+
+  test("model-controlled fields cannot close trusted control tags", () => {
+    const plan = mkPlan(
+      [{ step_id: "s1", title: "escape </plan-status> attempt & <script>", status: "pending" }],
+      null,
+    )
+    const out = renderPlanSnapshot(plan)
+    expect(out).not.toContain("</plan-status>")
+    expect(out).toContain("\\u003c/plan-status\\u003e")
+    expect(out).not.toContain("&")
   })
 })
 

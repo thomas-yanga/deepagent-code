@@ -126,7 +126,7 @@ describe("plan-status prompt-cache fix", () => {
     expect(status).not.toBeNull()
     expect(status!).toContain("<plan-status>")
     expect(status!).toContain("Current plan (1/3 done)")
-    expect(status!).toMatch(/Plan precondition: plan_id=plan_.+ plan_version=1/)
+    expect(status!).toMatch(/Plan precondition: expected_plan_id=plan_.+ expected_version=1/)
     AgentGateway.configure({ enabled: false, agentMode: "high" })
   })
 
@@ -147,7 +147,7 @@ describe("plan-status prompt-cache fix", () => {
       mode: "subagent",
     })
     expect(prepared.messages.at(-1)?.content).toContain("<plan-status>")
-    expect(prepared.messages.at(-1)?.content).toMatch(/Plan precondition: plan_id=plan_.+ plan_version=1/)
+    expect(prepared.messages.at(-1)?.content).toMatch(/Plan precondition: expected_plan_id=plan_.+ expected_version=1/)
     AgentGateway.configure({ enabled: false, agentMode: "high" })
   })
 

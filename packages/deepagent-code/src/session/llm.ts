@@ -478,7 +478,12 @@ const live: Layer.Layer<
           approvalHandler?: (approvalTools: { name: string; args: string }[]) => Promise<{ approved: boolean }>
         }
         workflowModel.sessionID = input.sessionID
-        workflowModel.systemPrompt = prepared.system.join("\n")
+        // BUG-006-407 §4.5: the Workflow protocol ignores the synthetic volatile user tail, so plan
+        // control (round context + plan snapshot/precondition) is supplied through the
+        // workflow-dedicated systemPrompt channel instead.
+        workflowModel.systemPrompt = [prepared.system.join("\n"), prepared.volatileTail]
+          .filter((part) => part.length > 0)
+          .join("\n\n")
         workflowModel.toolExecutor = async (toolName, argsJson, _requestID) => {
           // (1) Unknown tool — classify before attempting parse or execute.
           const t = prepared.tools[toolName]

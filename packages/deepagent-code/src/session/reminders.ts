@@ -37,7 +37,13 @@ export const renderPlanStatus = (
 
   const snapshot = AgentGateway.DeepAgentPlanController.renderPlanSnapshot(plan, detail)
   const ref = AgentGateway.DeepAgentPlanStore.planDocRef(sessionID)
-  const precondition = ref ? `\nPlan precondition: plan_id=${plan.plan_id} plan_version=${ref.version}` : ""
+  // BUG-006-407 §4.5: supply the write precondition under the exact model-facing field names
+  // (expected_plan_id / expected_version) so the model can copy them verbatim. When the authority
+  // ref is missing we FAIL CLOSED: explicitly forbid advance/replan instead of letting the model
+  // guess identity or version.
+  const precondition = ref
+    ? `\nPlan precondition: expected_plan_id=${plan.plan_id} expected_version=${ref.version}`
+    : `\nPlan writes unavailable: authoritative plan version unknown — do NOT call plan advance/replan.`
   const mutations = AgentGateway.DeepAgentSessionState.mutationsSinceReport(sessionID)
   const validationPassedSinceReport = AgentGateway.DeepAgentSessionState.validationPassedSinceReport(sessionID)
   // U10 hybrid trigger: semantic (a validation just passed) is primary, mode-scaled count is the

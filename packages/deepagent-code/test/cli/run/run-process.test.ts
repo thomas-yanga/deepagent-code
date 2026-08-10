@@ -17,7 +17,7 @@ const goalEnvironment = {
 }
 
 const completeCurrentPlan = (objective: string) => (hit: { body: Record<string, unknown> }) => {
-  const precondition = JSON.stringify(hit.body).match(/Plan precondition: plan_id=(\S+) plan_version=(\d+)/)
+  const precondition = JSON.stringify(hit.body).match(/Plan precondition: expected_plan_id=(\S+) expected_version=(\d+)/)
   if (!precondition) throw new Error("goal-worker prompt omitted the plan precondition")
   return {
     name: "plan",

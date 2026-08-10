@@ -76,6 +76,10 @@ export type Prepared = {
   }
   readonly messageTransformOptions: Record<string, any>
   readonly headers: Record<string, string>
+  // BUG-006-407 §4.5: the volatile plan/round control block. Normal turns deliver it as one
+  // ephemeral user tail; the GitLab Workflow protocol ignores that tail, so its caller folds this
+  // field into the workflow-dedicated systemPrompt channel instead.
+  readonly volatileTail: string
 }
 
 const mergeOptions = (target: Record<string, any>, source: Record<string, any> | undefined): Record<string, any> =>
@@ -306,6 +310,7 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
     metadata,
     params,
     messageTransformOptions: options,
+    volatileTail: volatileRoundContext,
     headers: {
       ...(input.model.providerID.startsWith("deepagent-code")
         ? {

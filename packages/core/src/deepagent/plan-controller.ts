@@ -765,17 +765,30 @@ export const formatStepChange = (c: StepStatusChange): string =>
 // can SEE its own checklist and report against it. One line per step; the full form includes goal +
 // progress, while tool continuations omit the already-adjacent goal. We deliberately omit
 // acceptance/assumptions/evidence so it cannot grow with history.
+// BUG-006-407 §4.5: each step line carries the exact step_id and blocked note so the model never
+// has to infer write parameters from titles/positions/history.
 export const renderPlanSnapshot = (plan: PlanDoc, detail: "full" | "continuation" = "full"): string => {
   const { done, total } = planProgress(plan)
   const active = plan.steps.find((s) => s.step_id === plan.active_step_id) ?? null
-  const lines = plan.steps.map((s) => `[${STATUS_MARK[s.status]}] ${s.title}`)
+  const lines = plan.steps.map((s) => {
+    const blockedNote = s.status === "blocked" && s.note ? ` — blocked: ${snapshotField(s.note)}` : ""
+    return `[${STATUS_MARK[s.status]}] ${snapshotField(s.step_id)}: ${snapshotField(s.title)}${blockedNote}`
+  })
   const header =
     detail === "continuation"
       ? `Current plan (${done}/${total} done)`
-      : `Current plan (${done}/${total} done) — goal: ${plan.goal}`
-  const activeLine = active ? `Active step: ${active.title}` : "No step is marked active."
+      : `Current plan (${done}/${total} done) — goal: ${snapshotField(plan.goal)}`
+  const activeLine = active
+    ? `Active step: ${snapshotField(active.step_id)} (${snapshotField(active.title)})`
+    : "No step is marked active."
   return `${header}\n${lines.join("\n")}\n${activeLine}`
 }
+
+// Snapshot fields render inside trusted control tags (<plan-status>, <deepagent-round-context>), so
+// any model-controlled free text must not be able to close them: <, > and & are escaped as unicode
+// sequences (BUG-006-407 §5.4 trusted-tag contract).
+const snapshotField = (value: string): string =>
+  value.replace(/&/g, "\\u0026").replace(/</g, "\\u003c").replace(/>/g, "\\u003e")
 
 // Progress-nudge budget (the COUNT BACKSTOP of the hybrid trigger). This is deliberately NOT the
 // primary signal: raw edit count conflates "the step is genuinely large" with "the model forgot to

@@ -8,22 +8,28 @@ the committed document as the authority. A rejected payload is never partially a
 Required protocol fields:
 - operation: exactly one of create, advance, or replan.
 - expected_plan_id and expected_version: both null for create; for advance/replan, copy the exact
-  plan_id and plan_version from the latest plan snapshot/event.
-- goal, steps, and active_step_id: the complete proposed plan, not a patch. active_step_id is null
-  when no step is active.
+  values from the latest "Next write" block or plan snapshot — never infer them from step titles,
+  step positions, or earlier messages.
 - replan_reason: required and specific for replan; omit it for create/advance.
 
 Operation rules:
-- create is only for a session with no plan. Step IDs may be omitted and are assigned once.
-- advance must preserve the existing plan_id, goal, assumptions, ordered step IDs, titles,
-  acceptance criteria, and assigned agents. It is for status, note, active-step, and evidence
-  progress within the existing contract.
-- replan is an intentional structural revision and must explain why. Do not use it to bypass the
-  version precondition or to erase unresolved work. Suspicious quality regressions are rejected.
+- create is only for a session with no plan. Provide goal, steps, and active_step_id. Step IDs may
+  be omitted and are assigned once.
+- advance is a status patch merged by the server, NOT a document rewrite. Provide only:
+  expected_plan_id, expected_version, the steps whose status or note changes (with their stable
+  step_id), and optionally active_step_id. Steps you omit are preserved unchanged; goal,
+  assumptions, step order, titles, acceptance criteria, and assigned agents are restored from the
+  authoritative plan — never restate them. Omit active_step_id to keep the current one; send null
+  to clear it. If any required parameter is missing from the runtime control context, do NOT call
+  advance (or replan) — ask the runtime to re-surface the plan instead of guessing.
+- replan is an intentional structural revision and must explain why. Provide the complete new
+  document. Do not use it to bypass the version precondition or to erase unresolved work.
+  Suspicious quality regressions are rejected.
 - status must be pending, active, done, cancelled, or blocked. A blocked step must include a note.
   There may be at most one active step, and active_step_id must agree with the statuses.
 - Do not provide evidence. Validation and runtime integrations attach evidence only after admission.
 
 After a step is finished, call this tool immediately with the next active step and the exact latest
-plan identity/version. Keep the plan small and honest. If a write is rejected, inspect the current
-snapshot and retry once with a corrected complete payload.
+plan identity/version from the "Next write" block of the previous result. Keep the plan small and
+honest. If a write is rejected, retry once with the exact "Authoritative retry base" returned in the
+error output — it already contains the current plan_id, version, step IDs, and statuses.
